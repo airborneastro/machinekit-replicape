@@ -1,146 +1,133 @@
-Replicape Configuration for MachineKit
-======================================
+Replicape Configuration for Machinekit, update to Debian Stretch and 4.14.x kernel
+==================================================================================
 
-This is to make Replicape usable in Machinekit, essentially this contains:
+(This is an update to the work of *Sam Wong* on a fork from github.com/sam0737/machinekit-replicape, which makes the Replicape board useful for Machinekit and 3D printers in velocity extrusion mode.  
+My (Karl Jacobs) contribution is only to adapt his configuration (and this README) to Machinekit on Debian Stretch 
+with an rt-preempt kernel and to add delta printer support. I could only test the B3A board version, but A4A should work as well. You need to set the board version in the ini-file, as it cannot be determined automatically in this configuration. I have not touched any of the code for board rev A4A. I also tested only with a delta printer, although the code contains provisions for use with a CoreXY setup which I did not touch. The configuration should also cover conventional trivial kinematics. The Trinamic stepper drivers on the Replicape board make the stepper motors amazingly quiet!)
+
+This is to make the Replicape board usable in Machinekit, essentially this contains:
+ 
 * Python HAL script linking up the hardware, GPIO, velocity extrusion controlling and exposing remote UI HAL.
 * Python HAL module for PWM controlling (Replicape uses a dedicated PWM controller)
 * Python HAL module for Stepper configuration such as Enable, Microstepping, Decay, and DAC configuration for the stepper current settings.
 * Reprap GCode remap
 
-Once fully setup, one would be able to control the Replicape in MachineKit way
+Main changes compared to the master branch of github.com/sam0737/machinekit-replicape
+-------------------------------------------------------------------------------------
 
-Specifically one could,
-* Install and use any QuickQtVcp user interface, such as Machineface - designed for 3D Printer. (https://github.com/machinekoder/Machineface)
-* Use any MachinekitClient to connect to Machineface (https://github.com/strahlex/MachinekitClient/)
+* adapt to Machinekit on Debian Stretch with 4.14.x rt-preempt kernel and u-boot overlays:
+  
+    * using rt-preempt instead of xenomai
+    * add BOARD_REV variable in ini-file, as u-boot overlays seem not to publish
+   the Replicape board version in dmesg or cmdline
+    * check for installed REPLICAPE overlay in /proc/cmdline
+    * export GPIO pins used by pru stepgen (in "set_pru_gpio.sh", not done by REPLICAPE overlay)
+    * change "localpincount" to "local_pincount" in icomps to make them compile
+    
+* use the stepgen.xx.minvel pin to avoid "pru hunting"
+   
+* add support for delta printers (lineardeltakins)
+    * detected by looking for DELTA_R in ini file
+    * add cartesian HOME-DELTA_Z in ini file so that G28 can be modified to go to Z coordinate at top of build space
+    instead of Z=0
+* copy more G- and M-code mappings to ../subroutines from /usr/share/linuxcnc/ncfiles/remap-subroutines/fdm/
+* implement M106 (pwm fan control)
+* implement M710 (jog filament), M207 (set retract parameters), M221 (set extrusion scale)
+* modify G28 to home to X0,Y0,Z(HOME-DELTA_Z) and to disable extrusion
 
-This is developed based on the CRAMPS configuration that comes with the Machinekit.  This uses the same generic PRUSS firmware that comes with Machinekit/CRAMPS in case you are interested.
+Prerequisites 
+-------------
 
-Note 
-------------
+### BeagleBoneBlack software preparation
 
-As of this writing, I am using 2016-11 version of Machinekit image. Please note that machinekit still has not reached 1.0 and a fast moving target, some instructions might not work in the future version.
-
-Prerequisite 
-------------
-
-### BeagleBoard Black software preparation
-
-* Machinekit on BeagleBoard Black
-  * A prebuilt debian image with machinekit installed is available at http://elinux.org/Beagleboard:BeagleBoneBlack_Debian
-    The "microSD/Standalone: (machinekit) Based on Debian Jessie (new)" version is recommended
-  * Windows user could use https://rufus.akeo.ie/ to write the image to the MicroSD card. Linux user could just DD to the MicroSD card.
-  * After flashing the MicroSD card with the image, one could convert it to a "Flasher" to flash the onboard eMMC instead.
-    Instruction of modifying the MicroSD files to the flasher mode is at http://elinux.org/Beagleboard:BeagleBoneBlack_Debian#Flashing_eMMC
-* Knowing how to login and secure the BBB (Not Replicape specific but general instruction for all BBB user)
-  * SSH into the board with machinekit. If you power up the BBB with USB, the BBB should present itself as a USB Ethernet device to the host computer. One should be able SSH to 192.168.7.2.
-  * If you have the Ethernet connected, check what dynamic IP got assigned to the BBB
-  * The default user and password is ```machinekit``` and ```machinekit```
-  * One might want to change the password, optionally create a new user, and configuring SSH pubkey authorization for easier maintainence, and changing the hostname.
-* Upgrading to kernel (The instructions is only tested on 4.8.*)
+* Machinekit on BeagleBoneBlack
+    * This configuration is adapted to Machinekit on Debian Stretch with the rt-preempt kernel 4.14.18-ti-rt-r33, to be found at
+  <https://elinux.org/Beagleboard:BeagleBoneBlack_Debian>
+  
+    * the present configuration uses an image including the machinekit package:  
+        microSD/Standalone: (machinekit) Based on Debian Stretch with 4.14.x rt kernel with U-Boot Overlays, 
+        specifically:  bone-debian-9.3-machinekit-armhf-2018-02-11-4gb.img.xz   
+        An update to kernel 4.14.25-ti-rt-r38 was tested as well (but needed the addition of the PRU overlay, which was optional in the earlier kernel, see below). 
+        Note that the Debian/machinekit packages are frequently updated.
+        
+    * make sure your boot loader is not too old, must support u-boot overlays, see above link for instructions to update.
+    * ssh to BeagleBoneBlack from your host computer and login. If you want X11 support, you will have to "sudo apt-get install xauth" and "touch ~/.Xauthority"
+    * make sure /boot/uEnv.txt has the following entries (cape_universal not enabled):
+    
 ```
-cd /opt/scripts/tools
-sudo ./update_kernel.sh --stable --bone-rt-channel
-reboot
-```
-* Install the Device Tree Overlays (such that the Replicape can be recognized)
-  * Follow the instruction at https://github.com/beagleboard/bb.org-overlays
-```
-git clone https://github.com/beagleboard/bb.org-overlays
-cd ./bb.org-overlays
-./dtc-overlay.sh 
-./install.sh
-```
-  * Reboot with the Replicape plugged onto BBB
-  * Verify if it is working
-```
-# If the cape is plugged and power-on, it should be detected
-cat /sys/devices/platform/bone_capemgr/slots
- 0: P-----  -1 Replicape 3D printer cape,0B3A,Intelligent Agen,BB-BONE-REPLICAP
- 1: PF----  -1
- 2: PF----  -1
- 3: PF----  -1
- 4: P-O-L-   0 Override Board Name,00A0,Override Manuf,cape-universaln
-
-# Check if the devices are populated, if this directory is not found, read on...
-ls /sys/bus/iio/devices/iio:device0/
-
-# Check if you got the following error message
-dmesg | less
-[    5.506020] bone_capemgr bone_capemgr: loader: failed to load slot-0 BB-BONE-REPLICAP:0B3A (prio 0)
-```
-    * It is known that the overlay tree does not have data for Rev 0B3A, but Rev 00B3. So let's flash the 00B3 info into the eeprom
-```
-https://bitbucket.org/intelligentagent/replicape/raw/bf08295bbb5e98ce6bff60097fe9b78d96002654/eeprom/Replicape_00B3.eeprom
-cat Replicape_00B3.eeprom > /sys/bus/i2c/devices/*-0054/eeprom
-```
-    * Now the ```bone_capemgr/slots``` should shows ```0B3A```, and ```iio:device0``` should be present after reboot.
-```
-dmesg | less
-[    4.533048] bone_capemgr bone_capemgr: slot #0: dtbo 'BB-BONE-REPLICAP-00B3.dtbo' loaded; overlay id #0
-```
-* Install the following python modules, which are used in the HAL
-```
-sudo pip install spi smbus 
-```
-* Install Machinekit -rt-preempt Realtime component (Since xenomai is not used), and -dev for compiling icomp
-```
-sudo apt install machinekit-rt-preempt machinekit-dev
-```
-* Modify the dev environment as follow
-```
-sudo vim /usr/share/linuxcnc/Makefile.inc
-
-3 lines to edit:
-BUILD_THREAD_FLAVORS=rt-preempt
-...
-HAVE_POSIX_THREADS=no
-HAVE_RT_PREEMPT_THREADS=yes
-```
-* Clone this repository for the machinekit configuration
-```
-# Do this non-root is highly recommended
-cd ~
-git clone https://github.com/sam0737/machinekit-replicape
-```
-* Clone the Machineface under user home directory
-```
-# Do this non-root is highly recommended
-cd ~
-git clone https://github.com/machinekoder/Machineface
-```
-* Enable Machinekit from accepting remote connection
-```
-Edit /etc/linuxcnc/machinekit.ini, change REMOTE to 1
+        enable_uboot_overlays=1  
+        #enable_uboot_cape_universal=1
+        disable_uboot_overlay_audio=1
+        uboot_overlay_pru=/lib/firmware/AM335X-PRU-UIO-00A0.dtbo 
+        cmdline=coherent_pool=1M net.ifnames=0 quiet  
 ```
 
-### Others
+   * optional: flash eMMC, instructions see above link
+        
+   * this config assumes that there is no "sudo" password required, which was the default in the above Debian Stretch image.
 
-* Slicer: Slic3r 1.2.9 is needed. Only since that version velocity extrusion is supported. Other slicers are not tested.
-* Get a machinekit client on the host computer at https://github.com/strahlex/MachinekitClient/
-
-Integration
------------
-
-* Go through ARM.Replicape.B3/replicape.ini and customize the settings accordingly.
-* Slic3r configuration, under Printer Settings:
-  * use firmware retraction + velocity extrusion
-  * Put ```M200 D[filament_diameter]``` in Start G-code in Slic3r
-
-Usage
------
-
-* Run mklauncher at the repository root
+### If the cape is plugged in and powered on, it should be detected:
 ```
-mklauncher -d .
+cat /proc/cmdline
 ```
-* Run Machinekit client. The printer should be discoverable.
+should show an entry
+```
+uboot_detected_capes=BB-BONE-REPLICAP
+```
+You can also check the boot protocol on the BBB serial interface for the following entries (board version B3A):
+```
+BeagleBone: cape eeprom: i2c_probe: 0x54: /lib/firmware/BB-BONE-REPLICAP-0B3A.dtbo [0xfdcc4bf]
+```
+and 
+```
+uboot_overlays: loading /lib/firmware/BB-BONE-REPLICAP-0B3A.dtbo ...
+```
+* Install the following python module, which is used in the HAL
+```
+sudo pip install spi 
+```
 
-Lincese
+* Clone this repository for the machinekit configuration to your machinekit configs directory:
+```
+cd ~/machinekit/configs
+git clone https://github.com/airborneastro/machinekit-replicape
+```
+* Edit the replicape.ini file according to your needs. The included ini file is for a Kossel Mini delta printer. Be sure to set the new BOARD_REV entry to the actual Replicape board revison (B3A or A4A) of your hardware. See <http://www.machinekit.io/docs/setting-up/lineardelta-FDM-printer/> for specifics about delta printer setup. Set the filament diameter in FILAMENT_DIA.  
+* make sure that replicape/set_pru_gpio.sh is executable. If not 
+```
+chmod +x machinekit-replicape/replicape/set_pru_gpio.sh
+```
+
+* Clone Machineface under your BBB user home directory:
+```
+cd ~/
+git clone https://github.com/machinekit/Machineface
+```
+* Enable Machinekit to accept remote connections: 
+edit /etc/linuxcnc/machinekit.ini, change REMOTE to 1
+
+* Install a machinekit client for your host computer from <https://github.com/machinekit/QtQuickVcp>
+
+* start mklauncher on BBB (watch the period):
+```
+cd ~/machinekit/configs/machinekit-replicape
+mklauncher .
+```
+* Start the machinekit client on your host computer. Be aware that for a delta printer the jog controls of Machineface work on the joints (carriages on the towers) and not on the cartesian x,y,z coordinates. Switching to teleop mode does not (yet) work in the version (March 2018) that I used. You can however jog the extruder. You can change the filament diameter on the Settings tab, or by adding M200 D[filament_diameter] to the start G-code.
+
+
+### Slicing for velocity extrusion
+
+* For Cura 3.1.2, machinekit velocity extrusion G-code is created with the "NGCWriter" plugin written by Alexander Rössler. As of March 19, 2018, this is now an official Cura plugin, so you can install it via Plugins > Browse Plugins. For an older version you can get NGCWriter from <https://github.com/machinekoder/NGCWriter>. Read <https://machinekoder.com/machinekit-and-cura/> for explanations. For the Linux version of Cura 3.2.1 (AppImage), copy the NGCWriter folder to ~/.local/share/cura/3.2/plugins/  
+ Slice and save the file using the "RS-274 GCode file (*.ngc)" option. The NGCWriter postprocessing scripts can also be used to process GCode of other slicers.
+
+
+License
 -------
 The MIT License (MIT)
 
 Copyright (c) 2015 Sam Wong
-
+ 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
 in the Software without restriction, including without limitation the rights

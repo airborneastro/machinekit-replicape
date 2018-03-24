@@ -5,8 +5,14 @@
 | 0         | HBP target temperature         |
 | 1         | HBC target temperature         |
 | 2 - 11    | E0-E9 target temperature       |
-| 41        | VE line cross section        |
-| 44        | VE filament diameter         |
+| 12 -15    | Fan0-Fan3 speed (M106)         |
+| 41        | VE line cross section          |
+| 44        | VE filament diameter           |
+| 45        | VE jog velocity                |
+| 46        | VE jog distance                |
+| 47        | VE retract length              |
+| 48        | VE retract velocity            |
+| 49        | VE extrude scale               |
 
 *** Analog Input
 
@@ -22,6 +28,9 @@
 |  # | Name                  |
 |----+-----------------------|
 |  1 | Extruder enable       |
+| 12 | VE jog trigger        |
+| 13 | VE jog continuous     |
+| 14 | VE jog direction      |
 
 *** Digital Input
 

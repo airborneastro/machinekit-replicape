@@ -13,16 +13,19 @@ def mkdir_p(path):
     """ 'mkdir -p' in Python """
     try:
         os.makedirs(path)
-    except OSError as exc:  # Python >2.5
+    except OSError as exc:  # Python <=2.5
         if exc.errno == errno.EEXIST and os.path.isdir(path):
             pass
         else:
             raise
 
 launcher.register_exit_handler()
+# leave debug level off. Setting debug_level(5) will cause cpu overload and will stop
+# your printer with joint errors! 
+# 
 #launcher.set_debug_level(5)
 os.chdir(os.path.dirname(os.path.realpath(__file__)))
-mkdir_p('/tmp/machinekit.ftp') # Create a folder for uploading gcodes
+#mkdir_p('/tmp/machinekit.ftp') # Create a folder for uploading gcodes
 
 try:
     launcher.check_installation()

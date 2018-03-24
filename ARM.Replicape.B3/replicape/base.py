@@ -2,6 +2,7 @@
 # encoding: utf-8
 
 import os
+import subprocess
 from machinekit import rtapi as rtapi
 from machinekit import hal
 from machinekit import config
@@ -12,25 +13,35 @@ import re
 from extrusion import Extruder
 
 SERVO_THREAD = 'servo-thread'
+HARDWARE_PATH = os.path.dirname(os.path.realpath(__file__)) + '/'
 BOARD_REV = ''
 AXIS_TOTAL = 0
+NUM_FANS = 0
+FAN_IO_START = 12
 EXTRUDER_TOTAL = 1
 DEFAULT_CURRENT = 0.5
 
 def check_version():
     global BOARD_REV
-    with open('/sys/devices/platform/bone_capemgr/slots', 'r') as file:
-        content = file.read()
-    if re.search(',00B3,', content) is not None:
-        BOARD_REV = 'B3A'
-        return
-    elif re.search(',0B3A,', content) is not None:
-        BOARD_REV = 'B3A'
-        return
-    elif re.search(',0A4A,', content) is not None:
-        BOARD_REV = 'A4A'
+# we use a 4.14.18-ti-rt-r33 kernel and have enable_uboot_overlays=1
+# in /boot/uEnv.txt
+# u-boot overlays do not use the slots file, so we take the board
+# version from the INI file
+# is there any way to find not just the loaded cape name, but also
+# its version (short of reading the cape eeprom)?
+# we check in /sys/proc/cmdline for the REPLICAPE cape
+#
+#    with open('/sys/devices/platform/bone_capemgr/slots', 'r') as file:
+#        content = file.read()
+    content = subprocess.check_output(['cat','/proc/cmdline'])
+    if re.search('capes=BB-BONE-REPLICAP', content) is None:
+        raise RuntimeError('Replicape not found. Is the cape mounted?')
+
+    content = config.find('FDM','BOARD_REV')
+    if (content is not None) and (content in ['B3A', 'A4A']):
+        BOARD_REV = content
     else:
-        raise RuntimeError('Unable to determine replicape board version')
+        raise RuntimeError('BOARD_REV not set in ini file. Set to B3A or A4A!')
 
 def setup_enable_chain():
     """
@@ -160,21 +171,21 @@ def setup_extruders(replicape, extruder_sel_sig):
         setup_extruder(replicape, extruders[i], i)
 
     shared_signals = [
-        # Shared Signal   Type           Attribute            fdm-ve-jog     fdm-ve-params      analog-io
-        ('enable',        hal.HAL_BIT,   'enable_sig',        None,          None,              None),
+        # Shared Signal   Type           Attribute            fdm-ve-jog     fdm-ve-params      analog- or digital-io
+        ('enable',        hal.HAL_BIT,   'enable_sig',        None,          None,              1),
         ('cross-section', hal.HAL_FLOAT, 'cross_section_sig', None,          None,              41),
-        ('jog-vel',       hal.HAL_FLOAT, 'jog_vel_sig',       'velocity',    None,              None),
-        ('jog-direction', hal.HAL_BIT,   'jog_direction_sig', 'direction',   None,              None),
-        ('jog-distance',  hal.HAL_FLOAT, 'jog_distance_sig',  'distance',    None,              None),
-        ('jog-trigger',   hal.HAL_BIT,   'jog_trigger_sig',   'trigger',     None,              None),
-        ('jog-continuous',hal.HAL_BIT,   'jog_continuous_sig','continuous',  None,              None),
+        ('jog-vel',       hal.HAL_FLOAT, 'jog_vel_sig',       'velocity',    None,              45),
+        ('jog-direction', hal.HAL_BIT,   'jog_direction_sig', 'direction',   None,              14),
+        ('jog-distance',  hal.HAL_FLOAT, 'jog_distance_sig',  'distance',    None,              46),
+        ('jog-trigger',   hal.HAL_BIT,   'jog_trigger_sig',   'trigger',     None,              12),
+        ('jog-continuous',hal.HAL_BIT,   'jog_continuous_sig','continuous',  None,              13),
         ('jog-dtg',       hal.HAL_FLOAT, 'jog_dtg_sig',       'dtg',         None,              None),
         ('max-jog-vel',   hal.HAL_FLOAT, 'max_jog_vel_sig',   'max-velocity',None,              None),
         ('filament-dia',  hal.HAL_FLOAT, 'filament_dia_sig',  None,          'filament-dia',    44),
-        ('extrude-scale', hal.HAL_FLOAT, 'extrude_scale_sig', None,          'extrude-scale',   None),
+        ('extrude-scale', hal.HAL_FLOAT, 'extrude_scale_sig', None,          'extrude-scale',   49),
         ('accel-gain',    hal.HAL_FLOAT, 'accel_gain_sig',    None,          'accel-adj-gain',  None),
-        ('retract-vel',   hal.HAL_FLOAT, 'retract_vel_sig',   None,          'retract-vel',     None),
-        ('retract-len',   hal.HAL_FLOAT, 'retract_len_sig',   None,          'retract-len',     None),
+        ('retract-vel',   hal.HAL_FLOAT, 'retract_vel_sig',   None,          'retract-vel',     48),
+        ('retract-len',   hal.HAL_FLOAT, 'retract_len_sig',   None,          'retract-len',     47),
 
         ('extrude-vel',   hal.HAL_FLOAT, 'extrude_vel_sig',   None,          None,              None),
         ('retracting',    hal.HAL_BIT  , 'retracting_sig',    None,          None,              None),
@@ -183,7 +194,7 @@ def setup_extruders(replicape, extruder_sel_sig):
     comp_jog = hal.RemoteComponent('fdm-ve-jog', timer=100)
     comp_params = hal.RemoteComponent('fdm-ve-params', timer=100)
 
-    for (signal_name, signal_type, attr_name, comp_jog_name, comp_params_name, analog_io_pin) in shared_signals:
+    for (signal_name, signal_type, attr_name, comp_jog_name, comp_params_name, io_pin) in shared_signals:
         signal = hal.newsig('ve.%s' % signal_name, signal_type)
         comp_dir_type = hal.HAL_IO
 
@@ -212,10 +223,11 @@ def setup_extruders(replicape, extruder_sel_sig):
         if comp_params_name is not None:
             pin = comp_params.newpin(comp_params_name, signal_type, comp_dir_type)
             pin.link(signal)
-        if analog_io_pin is not None:
-            signal.link('motion.analog-out-io-%d' % analog_io_pin)
-        if signal_name == 'enable':
-            signal.link('motion.digital-out-io-01')
+        if io_pin is not None:
+            if signal_type == hal.HAL_FLOAT:
+                signal.link('motion.analog-out-io-%d' % io_pin)
+            else:
+                signal.link('motion.digital-out-io-%02i' % io_pin)
             
     hal.Signal('ve.retracting').link('motion.feed-hold')
 
@@ -234,6 +246,30 @@ def setup_system_fan(replicape):
     fan_sig = hal.newsig('fan-output', hal.HAL_FLOAT)
     replicape.get_fan_pwm_pin(3).link(fan_sig)
     fan_sig.set(1.0)
+    
+def setup_fans(replicape):
+    if NUM_FANS == 0:
+    	return
+    en = config.find('FDM','SYSTEM_FAN', 0)
+    fan_out = [None] * NUM_FANS
+    fan_scale = [None] * NUM_FANS
+    fan_in = [None] * NUM_FANS
+    #on-board pwm input is 0.0 to 1.0, M106 sends 0 to 255
+    for i in xrange(NUM_FANS):
+        fan_out[i] =  hal.newsig('fan-out-%d' % i, hal.HAL_FLOAT)
+        replicape.get_fan_pwm_pin(i).link(fan_out[i])
+        # the system fan is connected to the last fan pwm output
+        if (int(en) > 0) and (i == NUM_FANS-1):
+            fan_out[i].set(1.0)
+        else:
+            fan_in[i] = hal.newsig('fan-in-%d' % i, hal.HAL_FLOAT)
+            fan_in[i].link('motion.analog-out-io-%d' % (FAN_IO_START + i))
+            fan_scale[i] = rtapi.newinst('div2', 'fan%d.div2.scale-pwm' % i)
+            hal.addf(fan_scale[i].name, SERVO_THREAD)
+            fan_scale[i].pin('in0').link(fan_in[i])
+            fan_scale[i].pin('in1').set(255.0)
+            fan_scale[i].pin('out').link(fan_out[i])
+
 
 def setup_limit_switches(replicape):
     limit_x_sig = hal.newsig('limit-x', hal.HAL_BIT)
@@ -325,11 +361,11 @@ def connect_tool_changer():
     c.link('iocontrol.0.tool-changed')
 
 def init_hardware():
-    check_version()
-
-    rtapi.init_RTAPI()
     config.load_ini(os.environ['INI_FILE_NAME'])
-
+    check_version()
+# we need to make the gpio pins used by the pru visible to userspace (??) in /sys/class/gpio
+    os.system('sudo ' + HARDWARE_PATH + 'set_pru_gpio.sh')
+    rtapi.init_RTAPI()
     error_sigs = []
     watchdog_sigs = []
 
@@ -342,14 +378,31 @@ def init_hardware():
     EXTRUDER_TOTAL = int(config.find('FDM', 'EXTRUDERS', '1'))
     if EXTRUDER_TOTAL < 1:
         raise RuntimeError("EXTRUDERS must be >= 1")
+        
+    global NUM_FANS
+    NUM_FANS = int(config.find('FDM','NUM_FANS', 4))
+    system_fan = int(config.find('FDM','SYSTEM_FAN', 0))
+    if (NUM_FANS < system_fan):
+    	raise RuntimeError("NUM_FANS must be >= 1 if SYSTEM_FAN > 0")
+    if (NUM_FANS > 4) or (NUM_FANS < 0 ):
+        raise RuntimeError("NUM_FANS must be > 0 and < 5")
 
     rtapi.loadrt('tp')
-    rtapi.loadrt('trivkins')
+    if config.find('MACHINE','DELTA_R') is not None:
+        kinematics = 'lineardeltakins'
+        rtapi.loadrt(kinematics)
+        hal.Pin('lineardeltakins.L').set(config.find('MACHINE', 'CF_ROD'))
+        hal.Pin('lineardeltakins.R').set(config.find('MACHINE', 'DELTA_R'))
+    else:
+        kinematics = 'trivkins'
+        rtapi.loadrt(kinematics)
+    
     rtapi.loadrt(config.find('EMCMOT', 'EMCMOT'), 
         servo_period_nsec=config.find('EMCMOT', 'SERVO_PERIOD'),
         num_joints=str(AXIS_TOTAL),
         num_aio=51,
-        num_dio=21)
+        num_dio=21,
+        kins = kinematics)
 
     hal.addf('motion-command-handler', SERVO_THREAD)
     hal.addf('motion-controller', SERVO_THREAD)
@@ -382,8 +435,8 @@ def init_hardware():
         error_sigs.append(t.get_error_sig())
         watchdog_sigs.append(t.get_temp_watchdog_sig())
 
-    setup_system_fan(replicape)
-
+#    setup_system_fan(replicape)
+    setup_fans(replicape)
     setup_estop(error_sigs, watchdog_sigs, estop_reset, SERVO_THREAD)
     connect_tool_changer()
 

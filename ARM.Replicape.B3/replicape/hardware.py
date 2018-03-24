@@ -13,13 +13,13 @@ class Replicape(object):
     def __init__(self):
         self.pru = rtapi.loadrt('hal_pru_generic', 
             pru=0, num_stepgens=5, num_pwmgens=0, halname='hpg',
-            prucode='%s/xenomai/pru_generic.bin' % (config.Config().EMC2_RTLIB_DIR))
-
+            prucode='%s/rt-preempt/pru_generic.bin' % (config.Config().EMC2_RTLIB_DIR))
+# 4.14.18-ti-rt-r33 kernel and rt-preempt
         hal.addf('hpg.capture-position', SERVO_THREAD)
         hal.addf('hpg.update', SERVO_THREAD)
         hal.addf('bb_gpio.read', SERVO_THREAD)
         hal.addf('bb_gpio.write', SERVO_THREAD)
-
+        minvel = config.find('TRAJ','MIN_VELOCITY', 0.001)
         for i in xrange(5):
             self.get_pru_pin('stepgen.%02i.dirsetup' % i).set(200)
             self.get_pru_pin('stepgen.%02i.dirhold' % i).set(200)
@@ -27,8 +27,16 @@ class Replicape(object):
             self.get_pru_pin('stepgen.%02i.stepspace' % i).set(1000)
             self.get_pru_pin('stepgen.%02i.dirpin' % i).set(self.pru_dir_pin(i))
             self.get_pru_pin('stepgen.%02i.steppin' % i).set(self.pru_step_pin(i))
+# setting to zero: pru_generic adapts to maximum velocity and acceleration
+# see http://www.machinekit.io/docs/man/man9/hal_pru_generic/           
             self.get_pru_pin('stepgen.%02i.maxvel' % i).set(0)
             self.get_pru_pin('stepgen.%02i.maxaccel' % i).set(0)
+            
+# use new pru stepgen minvel pin to avoid pru hunting problem (without PID loop)
+# see this discussion https://groups.google.com/forum/#!topic/machinekit/ATEwvfgoIb4
+# except for extruder(s)
+            if i < 3 :
+                self.get_pru_pin('stepgen.%02i.minvel' % i).set(minvel)
 
         self.pwm = hal.loadusr(USR_HAL_PATH + 'hal_replicape_pwm',
             name='replicape_pwm',
@@ -171,7 +179,7 @@ class ReplicapeB3A(Replicape):
         return [self.hwconfig.pin('watchdog'), self.pwm.pin('watchdog')]
 
     def get_limit_pin(self, axis, is_max):
-        # Return END_STOP_*_1 pins in all sistuations
+        # Return END_STOP_*_1 pins in all situations
         if axis == 'X': return self.get_gpio_pin('p9.in-25')
         if axis == 'Y': return self.get_gpio_pin('p9.in-23')
         if axis == 'Z': return self.get_gpio_pin('p9.in-13')

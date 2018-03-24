@@ -241,7 +241,7 @@ class Extruder(object):
             if v is None:
                 v = config_default
             if v is None:
-                raise ValueError('Config [EXTRUDER_%d] %s must be defined' % (self.nr, config_nammes[0]))
+                raise ValueError('Config [EXTRUDER_%d] %s must be defined' % (self.nr, config_names[0]))
             float_v = float(v)
             signal.set(float_v)
 
