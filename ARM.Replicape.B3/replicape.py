@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/python2
 # encoding: utf-8
 
 """
@@ -7,6 +7,8 @@ replicape.py
 Machinekit HAL for Replicape Rev B3
 
 Copyright (c) 2016 Sam Wong
+adaptations to Debian Stretch  and added functionality as detailed in README.md: 
+Copyright (c) 2018 Karl jacobs
 
 Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
 
