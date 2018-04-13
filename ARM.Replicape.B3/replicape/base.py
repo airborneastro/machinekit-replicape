@@ -256,20 +256,23 @@ def setup_fans(replicape):
     fan_in = [None] * NUM_FANS
     #on-board pwm input is 0.0 to 1.0, M106 sends 0 to 255
     for i in xrange(NUM_FANS):
-        fan_out[i] =  hal.newsig('fan-out-%d' % i, hal.HAL_FLOAT)
+        fan_out[i] =  hal.newsig('fan-output-%d' % i, hal.HAL_FLOAT)
         replicape.get_fan_pwm_pin(i).link(fan_out[i])
         # the system fan is connected to the last fan pwm output
         if (int(en) > 0) and (i == NUM_FANS-1):
             fan_out[i].set(1.0)
         else:
-            fan_in[i] = hal.newsig('fan-in-%d' % i, hal.HAL_FLOAT)
+            fan_in[i] = hal.newsig('fan-input-%d' % i, hal.HAL_FLOAT)
             fan_in[i].link('motion.analog-out-io-%d' % (FAN_IO_START + i))
             fan_scale[i] = rtapi.newinst('div2', 'fan%d.div2.scale-pwm' % i)
             hal.addf(fan_scale[i].name, SERVO_THREAD)
             fan_scale[i].pin('in0').link(fan_in[i])
             fan_scale[i].pin('in1').set(255.0)
             fan_scale[i].pin('out').link(fan_out[i])
-
+            comp = hal.RemoteComponent('fdm-f%d' % i, timer=100)
+            comp.newpin('set',hal.HAL_FLOAT, hal.HAL_IO)
+            comp.ready()
+            comp.pin('set').link(fan_in[i])
 
 def setup_limit_switches(replicape):
     limit_x_sig = hal.newsig('limit-x', hal.HAL_BIT)
